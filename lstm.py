@@ -1,90 +1,115 @@
-# pip install numpy
 import numpy as np
-# pip install torch
+import matplotlib.pyplot as plt
+import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-
-# pip install matplotlib
-import matplotlib.pyplot as plt
-from matplotlib.pyplot import figure
-
-# pip install alpha_vantage
-# from alpha_vantage.timeseries import TimeSeries
+from torch.autograd import Variable
 
 
-print("All libraries loaded")
+class LSTM(nn.Module):
 
-config = {
-    "alpha_vantage": {
-        "key": "YOUR_API_KEY", # Claim your free API key here: https://www.alphavantage.co/support/#api-key
-        "symbol": "IBM",
-        "outputsize": "full",
-        "key_adjusted_close": "5. adjusted close",
-    },
-    "data": {
-        "window_size": 20,
-        "train_split_size": 0.80,
-    },
-    "plots": {
-        "show_plots": True,
-        "xticks_interval": 90,
-        "color_actual": "#001f3f",
-        "color_train": "#3D9970",
-        "color_val": "#0074D9",
-        "color_pred_train": "#3D9970",
-        "color_pred_val": "#0074D9",
-        "color_pred_test": "#FF4136",
-    },
-    "model": {
-        "input_size": 1, # since we are only using 1 feature, close price
-        "num_lstm_layers": 2,
-        "lstm_size": 32,
-        "dropout": 0.2,
-    },
-    "training": {
-        "device": "cpu", # "cuda" or "cpu"
-        "batch_size": 64,
-        "num_epoch": 100,
-        "learning_rate": 0.01,
-        "scheduler_step_size": 40,
-    }
-}
+    def __init__(self, num_classes, input_size, hidden_size, num_layers, seq_length):
+        super(LSTM, self).__init__()  # LSTM 继承 nn.Module
+
+        self.num_classes = num_classes
+        self.num_layers = num_layers
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.seq_length = seq_length
+
+        self.lstm = nn.LSTM(input_size=input_size,  # The number of expected features in the input x
+                            hidden_size=hidden_size,  # The number of features in the hidden state h
+                            num_layers=num_layers,
+                            # Number of recurrent layers. Number of recurrent layers. E.g., setting num_layers=2 would mean stacking two LSTMs together to form a stacked LSTM, with the second LSTM taking in outputs of the first LSTM and computing the final results. Default: 1
+                            batch_first=True,
+                            # If True, then the input and output tensors are provided as (batch, seq, feature) instead of (seq, batch, feature).
+                            )
+
+        self.fc = nn.Linear(hidden_size, num_classes)  # 全联接层，应该在最后一层吧
+
+    def forward(self, x):
+        h_0 = Variable(torch.zeros(
+            self.num_layers, x.size(0), self.hidden_size))
+        c_0 = Variable(torch.zeros(
+            self.num_layers, x.size(0), self.hidden_size))
+
+        # print("x.size(0)", x.size(0)) # x.size(0) 93
+        # Propagate input through LSTM
+        ula, (h_out, _) = self.lstm(x, (h_0, c_0))
+
+        h_out = h_out.view(-1, self.hidden_size)
+
+        out = self.fc(h_out)  # 最后一层是线性全连接层
+        return out
 
 
 
-def download_data(config, plot=False):
-    # get the data from alpha vantage
+from dataloader import  data_loader
+X_train, y_train, X_test, y_test, sc= data_loader()
 
-    ts = TimeSeries(key=config["alpha_vantage"]["key"])
-    data, meta_data = ts.get_daily_adjusted(config["alpha_vantage"]["symbol"], outputsize=config["alpha_vantage"]["outputsize"])
 
-    data_date = [date for date in data.keys()]
-    data_date.reverse()
+num_epochs = 2000
+learning_rate = 0.01
+input_size = 1  # The number of expected features in the input x
+hidden_size = 2  # The number of features in the hidden state h
+num_layers = 1  # Number of recurrent layers
+num_classes = 1  #
 
-    data_close_price = [float(data[date][config["alpha_vantage"]["key_adjusted_close"]]) for date in data.keys()]
-    data_close_price.reverse()
-    data_close_price = np.array(data_close_price)
 
-    num_data_points = len(data_date)
-    display_date_range = "from " + data_date[0] + " to " + data_date[num_data_points-1]
-    print("Number data points:", num_data_points, display_date_range)
+seq_length = len(X_train[0])
+# print(seq_length)
+lstm = LSTM(num_classes, input_size, hidden_size, num_layers, seq_length=seq_length)
+criterion = torch.nn.MSELoss()  # mean-squared error for regression
+optimizer = torch.optim.Adam(lstm.parameters(), lr=learning_rate)
+# optimizer = torch.optim.SGD(lstm.parameters(), lr=learning_rate)
 
-    if plot:
-        fig = figure(figsize=(25, 5), dpi=80)
-        fig.patch.set_facecolor((1.0, 1.0, 1.0))
-        plt.plot(data_date, data_close_price, color=config["plots"]["color_actual"])
-        xticks = [data_date[i] if ((i%config["plots"]["xticks_interval"]==0 and (num_data_points-i) > config["plots"]["xticks_interval"]) or i==num_data_points-1) else None for i in range(num_data_points)] # make x ticks nice
-        x = np.arange(0,len(xticks))
-        plt.xticks(x, xticks, rotation='vertical')
-        plt.title("Daily close price for " + config["alpha_vantage"]["symbol"] + ", " + display_date_range)
-        plt.grid(b=None, which='major', axis='y', linestyle='--')
-        plt.show()
 
-    return data_date, data_close_price, num_data_points, display_date_range
+# Train the model
+for epoch in range(num_epochs):  # 2000轮训练。
+    outputs = lstm(X_train)  # 用训练集训练
+    optimizer.zero_grad()  # 第一步 导数清零 clears old gradients from the last step
 
-data_date, data_close_price, num_data_points, display_date_range = download_data(config, plot=config["plots"]["show_plots"])
+    # obtain the loss function
+    loss = criterion(outputs, y_train)
+
+    loss.backward()  # 第二步：computes the derivative of the loss w.r.t. the parameters
+
+    optimizer.step()  # 第三步：causes the optimizer to take a step based on the gradients of the parameters.
+    if epoch % 100 == 0:
+        print("Epoch: %d, loss: %1.5f" % (epoch, loss.item()))
+
+
+
+# 评价模型
+# 训练完train样本后，生成的模型model要用来测试样本。在model(test)之前，需要加上model.eval()，否则的话，有输入数据，即使不训练，它也会改变权值。这是model中含有BN层和Dropout所带来的的性质。
+lstm.eval()  #不启用 Batch Normalization 和 Dropout
+
+dataX = torch.cat((X_train, X_test), dim=0)
+datay = torch.cat((y_train, y_test), dim=0)
+
+
+# 预测：
+train_predict = lstm(dataX)                 # 这里是 用的全部数据。包括训练集 和 测试集
+print("train_predict", train_predict.shape) # 得到训练集结果 train_predict
+
+data_predict = train_predict.data.numpy()   # 转化为 numpy
+print("data_predict", data_predict.shape)
+
+dataY_plot = datay.data.numpy()             # 训练集 真实值 dataY
+print("dataY_plot", dataY_plot.shape)
+
+data_predict = sc.inverse_transform(data_predict) # 从(0,1)又转化为原来的尺寸
+dataY_plot = sc.inverse_transform(dataY_plot)     # 从(0,1)又转化为原来的尺寸
+
+fig = plt.figure()
+ax = fig.add_subplot(1, 1, 1)
+train_size = len(y_train)
+plt.axvline(x=train_size, c='r', linestyle='--')
+
+ax.plot(dataY_plot, c='blue', label='true')
+ax.plot(data_predict, c='red', label='pred')
+plt.title('Time-Series Prediction')
+ax.legend()
+plt.show()
+
 
