@@ -5,6 +5,7 @@ import torch
 from torch import Tensor
 from torch.autograd import Variable
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
 
 
 def sliding_windows(data, seq_length):
@@ -30,7 +31,7 @@ def data_loader() -> (Variable, Variable, Variable, Variable, object):
     print(test_raw.columns)
     print(train_raw.shape)
 
-    # 一个feature
+    #todo 一个feature
     data = train_raw["Atmospheric Pressure"]
     data = np.array(data)
     data = torch.unsqueeze(Tensor(data), 1)
@@ -52,9 +53,7 @@ def data_loader() -> (Variable, Variable, Variable, Variable, object):
     print("x:", X.shape)
     print("y:", y.shape)
 
-
     # 分开训练，测试集： 按0.67 比例，加载到 Tensor 中.
-    from sklearn.model_selection import train_test_split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42, shuffle=False)
     print(X_train.shape)
     print(X_test.shape)

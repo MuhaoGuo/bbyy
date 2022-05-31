@@ -45,8 +45,9 @@ class LSTM(nn.Module):
 
 
 from dataloader import  data_loader
-X_train, y_train, X_test, y_test, sc= data_loader()
-
+X_train, y_train, X_test, y_test, sc = data_loader()
+# X_train: torch.Size([468, 100, 1])
+# y_train: torch.Size([468, 1])
 
 num_epochs = 2000
 learning_rate = 0.01
