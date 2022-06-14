@@ -4,48 +4,44 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from dataloader import data_loader
 
 
 class LSTM(nn.Module):
-
     def __init__(self, num_classes, input_size, hidden_size, num_layers, seq_length):
         super(LSTM, self).__init__()  # LSTM 继承 nn.Module
 
-        self.num_classes = num_classes
-        self.num_layers = num_layers
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.seq_length = seq_length
+        self.num_classes = num_classes  # 1
+        self.num_layers = num_layers    # 1
+        self.input_size = input_size    # 1
+        self.hidden_size = hidden_size  # 2
+        self.seq_length = seq_length    # 100
 
         self.lstm = nn.LSTM(input_size=input_size,  # The number of expected features in the input x
                             hidden_size=hidden_size,  # The number of features in the hidden state h
-                            num_layers=num_layers,
-                            # Number of recurrent layers. Number of recurrent layers. E.g., setting num_layers=2 would mean stacking two LSTMs together to form a stacked LSTM, with the second LSTM taking in outputs of the first LSTM and computing the final results. Default: 1
-                            batch_first=True,
-                            # If True, then the input and output tensors are provided as (batch, seq, feature) instead of (seq, batch, feature).
+                            num_layers=num_layers,    # Number of recurrent layers. Number of recurrent layers. E.g., setting num_layers=2 would mean stacking two LSTMs together to form a stacked LSTM, with the second LSTM taking in outputs of the first LSTM and computing the final results. Default: 1
+                            batch_first=True,         # If True, then the input and output tensors are provided as (batch, seq, feature) instead of (seq, batch, feature).
                             )
 
         self.fc = nn.Linear(hidden_size, num_classes)  # 全联接层，应该在最后一层吧
 
     def forward(self, x):
-        h_0 = Variable(torch.zeros(
-            self.num_layers, x.size(0), self.hidden_size))
-        c_0 = Variable(torch.zeros(
-            self.num_layers, x.size(0), self.hidden_size))
+        h_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))   # 初始态？ 初始"输出"。 torch.Size([1, 468, 2])
+        c_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))   # 初始态？ 初始"state"。 torch.Size([1, 468, 2])
 
-        # print("x.size(0)", x.size(0)) # x.size(0) 93
         # Propagate input through LSTM
-        ula, (h_out, _) = self.lstm(x, (h_0, c_0))
+        ula, (h_out, _) = self.lstm(x, (h_0, c_0)) # 输入：(torch.Size([468, 100, 1]), (torch.Size([1, 468, 2]), torch.Size([1, 468, 2])))
+                                                   # 输出：ula： torch.Size([468, 100, 2])；  (h_out, _) ：(torch.Size([1, 468, 2]), torch.Size([1, 468, 2]))
 
-        h_out = h_out.view(-1, self.hidden_size)
+        h_out = h_out.view(-1, self.hidden_size)    # h_out torch.Size([468, 2])
+        out = self.fc(h_out)  # 最后一层是线性全连接层  # torch.Size([468, 1])
 
-        out = self.fc(h_out)  # 最后一层是线性全连接层
         return out
 
 
-
-from dataloader import  data_loader
 X_train, y_train, X_test, y_test, sc = data_loader()
+# X_train, y_train, X_test, y_test = data_loader()
+
 # X_train: torch.Size([468, 100, 1])
 # y_train: torch.Size([468, 1])
 
@@ -54,28 +50,31 @@ learning_rate = 0.01
 input_size = 1  # The number of expected features in the input x
 hidden_size = 2  # The number of features in the hidden state h
 num_layers = 1  # Number of recurrent layers
-num_classes = 1  #
+num_classes = 1  # 最后 输出层的个数，这里是回归预测，应该一个神经元就够了。
 
-
-seq_length = len(X_train[0])
-# print(seq_length)
-lstm = LSTM(num_classes, input_size, hidden_size, num_layers, seq_length=seq_length)
+seq_length = X_train.shape[1]  # seq_length = 100
+lstm = LSTM(num_classes,  # 1
+            input_size,   # 1
+            hidden_size,  # 2
+            num_layers,   # 1
+            seq_length=seq_length  # 100
+            )
 criterion = torch.nn.MSELoss()  # mean-squared error for regression
 optimizer = torch.optim.Adam(lstm.parameters(), lr=learning_rate)
 # optimizer = torch.optim.SGD(lstm.parameters(), lr=learning_rate)
 
+# print("lstm.parameters", lstm.parameters)
 
 # Train the model
 for epoch in range(num_epochs):  # 2000轮训练。
-    outputs = lstm(X_train)  # 用训练集训练
+    outputs = lstm(X_train)  # 用训练集训练   X_train: torch.Size([468, 100, 1])
     optimizer.zero_grad()  # 第一步 导数清零 clears old gradients from the last step
 
     # obtain the loss function
     loss = criterion(outputs, y_train)
-
     loss.backward()  # 第二步：computes the derivative of the loss w.r.t. the parameters
-
     optimizer.step()  # 第三步：causes the optimizer to take a step based on the gradients of the parameters.
+
     if epoch % 100 == 0:
         print("Epoch: %d, loss: %1.5f" % (epoch, loss.item()))
 
@@ -99,8 +98,9 @@ print("data_predict", data_predict.shape)
 dataY_plot = datay.data.numpy()             # 训练集 真实值 dataY
 print("dataY_plot", dataY_plot.shape)
 
-data_predict = sc.inverse_transform(data_predict) # 从(0,1)又转化为原来的尺寸
-dataY_plot = sc.inverse_transform(dataY_plot)     # 从(0,1)又转化为原来的尺寸
+if sc != None:
+    data_predict = sc.inverse_transform(data_predict) # 从(0,1)又转化为原来的尺寸
+    dataY_plot = sc.inverse_transform(dataY_plot)     # 从(0,1)又转化为原来的尺寸
 
 fig = plt.figure()
 ax = fig.add_subplot(1, 1, 1)
